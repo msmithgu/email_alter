@@ -1,0 +1,112 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Email Alter allows admin interface creation of rulesets which can
+ * modify Drupal generated emails.
+ */
+
+function email_alter_get_aliases() {
+  return variable_get('email_alter_aliases', '');
+}
+
+function email_alter_get_aliases_parsed() {
+  return email_alter_aliases_parse(
+    email_alter_get_aliases());
+}
+
+function email_alter_menu() {
+  $items = array();
+
+  $items['admin/settings/email-alter'] = array(
+    'title' => t('Email Alter Settings'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('email_alter_admin'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+function email_alter_admin() {
+  $form = array();
+
+  $form['email_alter_aliases'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Email Aliases'),
+    '#default_value' => email_alter_get_aliases(),
+    '#description' => t(
+        '<strong>Key-value pairs MUST be specified as '
+      . '"alias_email@example.net | email1@foo.com,email2@bar.com"</strong>.'),
+    '#rows' => 10,
+    '#validate' => array('email_alter_admin_validate'),
+  );
+
+  return system_settings_form($form);
+}
+
+function email_alter_admin_validate($form_id, &$form) {
+  $raw_aliases = $form['values']['email_alter_aliases'];
+  $valid = email_alter_aliases_validate($raw_aliases);
+  if (!$valid)
+    form_set_error('', t('Please correct your Alias declaration syntax.'));
+}
+
+function email_alter_email_regex() {
+  // Adapting email patterns from Drupal core function, valid_email_address()..
+  $user = '[a-zA-Z0-9_\-\.\+\^!#\$%&*+\/\=\?\`\|\{\}~\']+';
+  $domain = '(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.?)+';
+  $ipv4 = '[0-9]{1,3}(\.[0-9]{1,3}){3}';
+  $ipv6 = '[0-9a-fA-F]{1,4}(\:[0-9a-fA-F]{1,4}){7}';
+  $email = "$user@($domain|(\[($ipv4|$ipv6)\]))";
+  return $email;
+}
+
+function email_alter_aliases_validate($raw_aliases) {
+  $email = email_alter_email_regex();
+  $line =
+      '\s*' . $email . '\s*\|\s*'         # Required alias.
+    . $email                              # Required real address.
+    . '(?:' . '\s*,\s*' . $email . ')*'   # Potential additional reals.
+    . '\s*';
+
+  $pattern =
+      '/\A'
+    . '(?:' . $line . ')*'
+    . '\z/ms';
+
+  return preg_match($pattern, $raw_aliases);
+}
+
+function email_alter_alias_unparse($alias, $value) {
+  return "$alias | $value";
+}
+
+function email_alter_aliases_unparse($aliases) {
+  return implode("\n",
+    array_map('email_alter_alias_unparse', array_keys($aliases), $aliases));
+}
+
+function email_alter_aliases_parse($aliases) {
+  $alias_lines = explode("\n", $aliases);
+  $aliases_parsed = array();
+
+  foreach ($alias_lines as $alias_line) {
+    $alias = preg_replace('/\s*\|.*/', '', $alias_line);
+    $value = preg_replace('/.*\|\s*/', '', $alias_line);
+    $aliases_parsed[$alias] = $value;
+  }
+
+  return $aliases_parsed;
+}
+
+function email_alter_mail_alter(&$message) {
+  $emailkeyvals = email_alter_get_aliases_parsed();
+
+  if ( in_array($message['to'], array_keys($emailkeyvals))) {
+    // This code currently supports single address replacement.
+    $message['to'] = $emailkeyvals[$message['to']];
+  }
+}

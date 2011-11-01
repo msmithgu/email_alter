@@ -1,0 +1,4 @@
+; $Id$
+name = "Email Alter"
+description = "Allows admin interface creation of rulesets which can modify Drupal generated emails."
+core = 6.x
